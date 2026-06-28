@@ -54,6 +54,7 @@ application:
   pods:
   - name: app
     path: /
+    image: "# filled by pipeline"
     servicePorts:
     - 3000
     vars:
@@ -65,7 +66,7 @@ application:
       mountPath: /app/public/media
       size: 5Gi
   - name: payload-mongo
-    image: mirror.gcr.io/library/mongo:5
+    image: mirror.gcr.io/library/mongo:6
     servicePorts:
     - 27017
     volumes:
