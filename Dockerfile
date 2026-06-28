@@ -1,39 +1,32 @@
-FROM mirror.gcr.io/library/node:22-slim
-# build-time env seeded from .env.example
-ENV OPENAI_KEY=nexlayer-placeholder
-
-# Install build essentials for native modules
-RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
-
+# Self-contained Payload 3.x app lives in ./nexlayer-app (the repo root is the
+# Payload monorepo and is not directly deployable). Build only that subfolder.
+FROM node:22.17.0-alpine AS deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
+COPY nexlayer-app/package.json nexlayer-app/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-# Install pnpm globally
-RUN npm install -g pnpm@10.27.0
+FROM node:22.17.0-alpine AS builder
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY nexlayer-app/ ./
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_OPTIONS="--no-deprecation --max-old-space-size=8000"
+# Build-time placeholders; real values come from the pod env at runtime.
+ENV PAYLOAD_SECRET=build-time-placeholder
+ENV DATABASE_URL=mongodb://localhost:27017/payload
+RUN npm run build
 
-# Copy all files to avoid monorepo context issues
-COPY . .
-
-# Install dependencies without frozen lockfile to avoid version mismatch crashes
-# Use --no-frozen-lockfile because the repo lacks a lockfile in the root
-RUN pnpm install --no-frozen-lockfile
-
-# Build environment variables to prevent Payload/Next.js from crashing during build
+FROM node:22.17.0-alpine AS runner
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV DISABLE_ESLINT_PLUGIN=true
-ENV TSC_COMPILE_ON_ERROR=true
-ENV PAYLOAD_SECRET=placeholder_secret_for_build
-ENV PAYLOAD_DATABASE=mongodb
-ENV NEXT_PUBLIC_SERVER_URL=http://localhost:3000
-
-# The build log indicates a monorepo structure (packages/admin-bar).
-# We build the root or the specific package if needed. 
-# Given the 'deploy_platform' 503, we ensure a build happens and we use the correct start command.
-RUN pnpm run build || echo "Build failed, attempting to proceed"
-
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 EXPOSE 3000
-ENV PORT 3000
-
-# We use 'pnpm start' to let the package.json define the correct entry point
-# This avoids the 'node src/index.ts' error (cannot run TS directly with node)
-CMD ["pnpm", "start"]
+CMD ["node", "server.js"]
