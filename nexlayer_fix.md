@@ -31,6 +31,10 @@ ENV NODE_OPTIONS="--no-deprecation --max-old-space-size=8000"
 ENV PAYLOAD_SECRET=build-time-placeholder
 ENV DATABASE_URL=mongodb://localhost:27017/payload
 RUN npm run build
+# nexlayer-app ships no public/ dir; Next standalone won't create one. The runner
+# stage COPYs /app/public and the nexlayer.yaml mounts uploads at /app/public/media,
+# so guarantee the dir exists or the runner-stage COPY fails ("no such file").
+RUN mkdir -p public
 
 FROM node:22.17.0-alpine AS runner
 RUN apk add --no-cache libc6-compat
